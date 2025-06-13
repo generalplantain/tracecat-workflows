@@ -1,0 +1,489 @@
+created_at: '2025-06-13T15:42:17.129409Z'
+definition:
+  actions:
+  - action: core.http_request
+    args:
+      headers:
+        x-api-key: ${{SECRETS.secure_annex.SECURE_ANNEX_API_TOKEN}}
+      method: GET
+      params:
+        active: true
+        extension_id: ${{ACTIONS.get_jira_ticket_details.result.extension_id}}
+      url: https://api.secureannex.com/v0/extensions
+    depends_on:
+    - get_jira_ticket_details
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_extension_details
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.get_ticket_details_from_webhook.result.data.webhook_event ==
+      "jira:issue_created"}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        x-api-key: ${{SECRETS.secure_annex.SECURE_ANNEX_API_TOKEN}}
+      method: GET
+      params:
+        extension_id: ${{ACTIONS.get_jira_ticket_details.result.extension_id}}
+      url: https://api.secureannex.com/v0/vulnerabilities
+    depends_on:
+    - get_extension_details
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_extension_vulnerabilities_if_any
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        x-api-key: ${{SECRETS.secure_annex.SECURE_ANNEX_API_TOKEN}}
+      method: GET
+      params:
+        extension_id: ${{ACTIONS.get_jira_ticket_details.result.extension_id}}
+      url: https://api.secureannex.com/v0/manifest
+    depends_on:
+    - get_extension_vulnerabilities_if_any
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_extension_manifest
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        x-api-key: ${{SECRETS.secure_annex.SECURE_ANNEX_API_TOKEN}}
+      method: GET
+      params:
+        extension_id: ${{ACTIONS.get_jira_ticket_details.result.extension_id}}
+      url: https://api.secureannex.com/v0/analysis
+    depends_on:
+    - get_extension_manifest
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_ai_analysis_of_extension
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.reshape
+    args:
+      value:
+        data:
+          changelog: ${{ TRIGGER.changelog }}
+          event_type: ${{ TRIGGER.issue_event_type_name }}
+          issue: ${{ TRIGGER.issue }}
+          timestamp: ${{ TRIGGER.timestamp }}
+          user: ${{ TRIGGER.user }}
+          webhook_event: ${{ TRIGGER.webhookEvent }}
+    depends_on: []
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_ticket_details_from_webhook
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.reshape
+    args:
+      value:
+        business_justification: ${{ ACTIONS.get_ticket_details_from_webhook.result.data.issue.fields."customfield_13437"}}
+        chrome_store_url: ${{ ACTIONS.get_ticket_details_from_webhook.result.data.issue.fields."customfield_13438"}}
+        email: ${{ ACTIONS.get_ticket_details_from_webhook.result.data.issue.fields."customfield_13480"}}
+        extension_id: ${{ ACTIONS.get_ticket_details_from_webhook.result.data.issue.fields."customfield_13436"}}
+        jira_ticket: ${{ ACTIONS.get_ticket_details_from_webhook.result.data.issue."key"}}
+    depends_on:
+    - get_ticket_details_from_webhook
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_jira_ticket_details
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.reshape
+    args:
+      value:
+        PR: ${{var.vulnerability.vulnerability.identifiers.PR}}
+        below: ${{var.vulnerability.vulnerability.below}}
+        component: ${{var.vulnerability.component}}
+        cwe: ${{var.vulnerability.vulnerability.cwe}}
+        detection: ${{var.vulnerability.detection}}
+        extension_id: ${{var.vulnerability.extension_id}}
+        file_path: ${{var.vulnerability.file_path}}
+        info: ${{var.vulnerability.vulnerability.info}}
+        name: ${{var.vulnerability.name}}
+        npmname: ${{var.vulnerability.npmname}}
+        severity: ${{var.vulnerability.vulnerability.severity}}
+        summary: ${{var.vulnerability.vulnerability.identifiers.summary}}
+        version: ${{var.vulnerability.version}}
+        vuln_version: ${{var.vulnerability.vuln_version}}
+        vulnerability: ${{var.vulnerability.component}}
+    depends_on:
+    - get_ai_analysis_of_extension
+    description: ''
+    for_each: ${{ for var.vulnerability in ACTIONS.get_extension_vulnerabilities_if_any.result.data.result
+      }}
+    interaction: null
+    join_strategy: all
+    ref: vulnerability_details
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.google_api.get_access_token
+    args:
+      scopes:
+      - https://www.googleapis.com/auth/admin.directory.orgunit.readonly
+      - https://www.googleapis.com/auth/admin.directory.orgunit
+    depends_on:
+    - extension_approved
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_access_token_org_unit
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        Authorization: Bearer ${{ACTIONS.get_access_token_org_unit.result}}
+        Content-Type: application/json
+      method: GET
+      params:
+        orgUnitPath: ${{ ACTIONS.list_parent_org_unit_id.result.data.organizationUnits[0].orgUnitPath
+          }}
+        type: all
+      url: https://admin.googleapis.com/admin/directory/v1/customer/C04eizcms/orgunits
+    depends_on:
+    - list_parent_org_unit_id
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: list_child_org_unit_ids
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.reshape
+    args:
+      value:
+        name: ${{var.orgunit.name}}
+        orgUnitId: ${{var.orgunit.orgUnitId}}
+        orgUnitPath: ${{var.orgunit.orgUnitPath}}
+    depends_on:
+    - list_child_org_unit_ids
+    description: ''
+    for_each: ${{ for var.orgunit in ACTIONS.list_child_org_unit_ids.result.data.organizationUnits
+      }}
+    interaction: null
+    join_strategy: all
+    ref: list_org_unit_details
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.google_api.get_access_token
+    args:
+      scopes:
+      - https://www.googleapis.com/auth/admin.directory.user
+      subject: admin@admin.com
+    depends_on:
+    - list_org_unit_details
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_access_token_to_list_users
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        Authorization: Bearer ${{ACTIONS.get_access_token_to_list_users.result}}
+        Content-Type: application/json
+      method: GET
+      url: https://admin.googleapis.com/admin/directory/v1/users/${{ACTIONS.get_jira_ticket_details.result.email}}
+    depends_on:
+    - get_access_token_to_list_users
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_user_in_google
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.filter
+    args:
+      items: ${{ ACTIONS.list_org_unit_details.result }}
+      python_lambda: 'lambda x: x["orgUnitPath"] == "${{ ACTIONS.get_user_in_google.result.data.orgUnitPath
+        }}"'
+    depends_on:
+    - get_user_in_google
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_user_org_unit_id_from_path
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.google_api.get_access_token
+    args:
+      scopes:
+      - https://www.googleapis.com/auth/chrome.management.policy
+      subject: admin@admin.com
+    depends_on:
+    - get_user_org_unit_id_from_path
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_access_token_install_extension
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        Authorization: Bearer ${{ACTIONS.get_access_token_install_extension.result}}
+        Content-Type: application/json
+      method: POST
+      payload:
+        requests:
+        - policyTargetKey:
+            additionalTargetKeys:
+              app_id: chrome:${{ACTIONS.get_jira_ticket_details.result.extension_id}}
+            targetResource: orgunits/${{ FN.replace(ACTIONS.get_user_org_unit_id_from_path.result[0].orgUnitId,
+              "id:", "") }}
+          policyValue:
+            policySchema: chrome.users.apps.InstallType
+            value:
+              appInstallType: ALLOWED
+          updateMask: appInstallType
+      url: https://chromepolicy.googleapis.com/v1/customers/C04eizcms/policies/orgunits:batchModify
+    depends_on:
+    - get_access_token_install_extension
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: install_extension
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.jira.add_issue_comment
+    args:
+      base_url: https://.atlassian.net
+      comment: 'AI Analysis: ${{ACTIONS.get_ai_analysis_of_extension.result.data.result[0]."analysis"}}
+
+        Owner: ${{ACTIONS.get_extension_details.result.data.result[0]."owner"}}
+
+        Last updated: ${{ACTIONS.get_extension_details.result.data.result[0]."updated_date"}}
+
+        Manifest Version: ${{ACTIONS.get_extension_details.result.data.result[0]."manifest_version"}}
+
+        Name: ${{ACTIONS.get_extension_details.result.data.result[0]."name"}}
+
+        Overview: ${{ACTIONS.get_extension_details.result.data.result[0]."overview"}}
+
+        Permissions: ${{ACTIONS.get_extension_manifest.result.data.result}}
+
+        Privacy data being collected: ${{ACTIONS.get_extension_details.result.data.result[0]."privacy_data"}}
+
+        Privacy policy: ${{ACTIONS.get_extension_details.result.data.result[0]."privacy_notice"}}
+
+        Rating: ${{ACTIONS.get_extension_details.result.data.result[0]."rating"}}
+
+        Review count: ${{ACTIONS.get_extension_details.result.data.result[0]."num_ratings"}}
+
+        Users: ${{ACTIONS.get_extension_details.result.data.result[0]."users"}}
+
+        Vulnerability count: ${{ACTIONS.get_extension_vulnerabilities_if_any.result.data.total_count}}
+
+        Website: ${{ACTIONS.get_extension_details.result.data.result[0]."website"}}
+
+        '
+      issue_id_or_key: ${{ACTIONS.get_jira_ticket_details.result.jira_ticket}}
+    depends_on:
+    - vulnerability_details
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: add_extension_analysis_to_issue
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.http_request
+    args:
+      headers:
+        Authorization: Bearer ${{ACTIONS.get_access_token_org_unit.result}}
+        Content-Type: application/json
+      method: GET
+      url: https://admin.googleapis.com/admin/directory/v1/customer/C04eizcms/orgunits
+    depends_on:
+    - get_access_token_org_unit
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: list_parent_org_unit_id
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.reshape
+    args:
+      value: null
+    depends_on:
+    - get_ticket_details_from_webhook
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: is_this_a_case_comment
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.get_ticket_details_from_webhook.result.data.webhook_event ==
+      "comment_created"}}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.jira.add_issue_comment
+    args:
+      base_url: https://company.atlassian.net
+      comment: Your extension request has been approved and you will now be able to
+        install this. If you can't install the extension, please restart chrome and
+        try again.
+      issue_id_or_key: ${{ACTIONS.get_jira_ticket_details.result.jira_ticket}}
+    depends_on:
+    - install_extension
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: add_approval_comment_to_issue
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.transform.reshape
+    args:
+      value: null
+    depends_on:
+    - get_jira_ticket_details
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: extension_approved
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.get_ticket_details_from_webhook.result.data.webhook_event ==
+      "jira:issue_updated" && ACTIONS.get_ticket_details_from_webhook.result.data.issue.fields.status.name
+      == "Request Approved"}}
+    start_delay: 0.0
+    wait_until: null
+  config:
+    environment: chrome_extensions
+    timeout: 300.0
+  description: New workflow created May 09, 2025, 08:56:40
+  entrypoint:
+    expects: {}
+    ref: null
+  error_handler: ''
+  inputs: {}
+  returns: null
+  title: Chrome Extension Request Workflow w/ Jira and Secure Annex
+  triggers: []
+updated_at: '2025-06-13T15:42:17.129703Z'
+version: 2
+workflow_id: abdc2225-6ce1-4194-aa9f-6af7b6a7244c
+workspace_id: b243acf9-ce6a-4da4-a6ea-cdf02184a9f3
