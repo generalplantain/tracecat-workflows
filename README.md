@@ -8,16 +8,14 @@ A collection of production-ready security automation workflows for [Tracecat](ht
 
 | Workflow | Description | Platform |
 |----------|-------------|----------|
-| [Automating macOS Chrome History Collection](./automating-chrome-history-collection-using-crowdstrike/) | Forensic collection of Chrome browser history via CrowdStrike RTR | macOS |
+| [Automating macOS Chrome History Collection](./automating-chrome-history-collection-using-crowdstrike-and-tracecat/) | Forensic collection of Chrome browser history via CrowdStrike RTR | macOS |
 
 ---
 
 ## 🚀 Getting Started
 
-1. Clone this repository
-2. Import the workflow YAML into your Tracecat instance
-3. Configure required secrets (see individual workflow READMEs)
-4. Test in a non-production environment first
+1. Import the workflow YAML into your Tracecat instance
+2. Configure required secrets (see individual workflow READMEs)
 
 ---
 
