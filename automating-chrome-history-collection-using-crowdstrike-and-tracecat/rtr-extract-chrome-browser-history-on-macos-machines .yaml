@@ -1,0 +1,1835 @@
+created_at: '2025-11-25T14:54:18.868057Z'
+definition:
+  actions:
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: QueryDevicesByFilter
+      params:
+        filter: hostname:' ${{ TRIGGER.Hostname }}'
+    depends_on:
+    - create_case
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: query_devices_by_filter
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: GetDeviceDetails
+      params:
+        ids: ${{ ACTIONS.query_devices_by_filter.result.body.resources[0] }}
+    depends_on:
+    - query_devices_by_filter
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: get_device_details
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.query_devices_by_filter.result.status_code == 200}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        device_details: ${{ ACTIONS.get_device_details.result.body.resources[0] }}
+      script: "def main(device_details):\n  # Validate platform\n  platform = device_details.get(\"\
+        platform_name\", \"\").lower()\n  if platform != \"mac\":\n      return {\n\
+        \          \"success\": False,\n          \"error\": f\"Device is not macOS\
+        \ (platform: {platform}). This workflow only supports macOS.\"\n      }\n\
+        \  \n  # Check device status\n  status = device_details.get(\"status\", \"\
+        \")\n  if status != \"normal\":\n      return {\n          \"success\": False,\
+        \ \n          \"error\": f\"Device status is '{status}'. Device must be online\
+        \ and normal status for RTR collection.\"\n      }\n  \n  # Extract system\
+        \ info for forensic documentation\n  system_info = {\n      \"hostname\":\
+        \ device_details.get(\"hostname\"),\n      \"platform\": device_details.get(\"\
+        platform_name\"),\n      \"os_version\": device_details.get(\"os_version\"\
+        ),\n      \"last_seen\": device_details.get(\"last_seen\"),\n      \"first_seen\"\
+        : device_details.get(\"first_seen\"),\n      \"system_manufacturer\": device_details.get(\"\
+        system_manufacturer\"),\n      \"system_product_name\": device_details.get(\"\
+        system_product_name\"),\n      \"external_ip\": device_details.get(\"external_ip\"\
+        ),\n      \"local_ip\": device_details.get(\"local_ip\")\n  }\n  \n  return\
+        \ {\n      \"success\": True,\n      \"device_id\": device_details.get(\"\
+        device_id\"),\n      \"system_info\": system_info\n  }\n"
+    depends_on:
+    - get_device_details
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: validate_device_for_collection
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.get_device_details.result.status_code == 200}}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchInitSessions
+      params:
+        body:
+          host_ids:
+          - ${{ ACTIONS.validate_device_for_collection.result.device_id }}
+          queue_offline: false
+    depends_on:
+    - validate_device_for_collection
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: initialise_rtr_session
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.validate_device_for_collection.result.success == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        rtr_response: ${{ ACTIONS.initialise_rtr_session.result }}
+      script: "def main(rtr_response):\n  if rtr_response.get(\"status_code\") !=\
+        \ 201:\n      errors = rtr_response.get('body', {}).get('errors', [])\n  \
+        \    return {\n          \"success\": False,\n          \"error\": f\"Failed\
+        \ to start batch RTR session: {rtr_response.get('status_code')} - {str(errors)}\"\
+        \n      }\n  \n  # Batch sessions return batch_id at the top level\n  batch_id\
+        \ = rtr_response.get(\"body\", {}).get(\"batch_id\")\n  if not batch_id:\n\
+        \      return {\n          \"success\": False,\n          \"error\": \"No\
+        \ batch_id returned from batch session initialization\"\n      }\n  \n  #\
+        \ Get session details from resources\n  resources = rtr_response.get(\"body\"\
+        , {}).get(\"resources\", {})\n  \n  if not resources:\n      return {\n  \
+        \        \"success\": False,\n          \"error\": \"No session resources\
+        \ returned\"\n      }\n  \n  # Get the first (and should be only) device session\
+        \ info dynamically\n  device_id = list(resources.keys())[0]  # Get first device\
+        \ ID\n  session_info = resources[device_id]\n  \n  return {\n      \"success\"\
+        : True,\n      \"batch_id\": batch_id,\n      \"device_id\": device_id,\n\
+        \      \"session_id\": session_info.get(\"session_id\"),\n      \"pwd\": session_info.get(\"\
+        stdout\", \"/\"),  # pwd command output is in stdout\n      \"complete\":\
+        \ session_info.get(\"complete\", False),\n      \"errors\": session_info.get(\"\
+        errors\", [])\n  }\n"
+    depends_on:
+    - initialise_rtr_session
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: extract_session_information
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.initialise_rtr_session.result.status_code == 201}}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchCmd
+      params:
+        body:
+          base_command: ls
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: ls /Users/
+          session_id: ${{ACTIONS.extract_session_information.result.session_id}}
+    depends_on:
+    - extract_session_information
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: list_users_on_the_host_device
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        batch_response: ${{ ACTIONS.list_users_on_the_host_device.result }}
+      script: "def main(batch_response):\n    # Get the combined resources\n    combined\
+        \ = batch_response.get(\"body\", {}).get(\"combined\", {})\n    resources\
+        \ = combined.get(\"resources\", {})\n    \n    if not resources:\n       \
+        \ return {\n            \"success\": False,\n            \"error\": \"No resources\
+        \ returned from user discovery command\"\n        }\n    \n    # Get the first\
+        \ (and only) device result dynamically\n    device_id = list(resources.keys())[0]\n\
+        \    device_result = resources[device_id]\n    \n    # Check if command completed\
+        \ successfully\n    if not device_result.get(\"complete\"):\n        return\
+        \ {\n            \"success\": False,\n            \"error\": \"User discovery\
+        \ command did not complete\"\n        }\n    \n    stdout = device_result.get(\"\
+        stdout\", \"\")\n    if not stdout:\n        return {\n            \"success\"\
+        : False,\n            \"error\": \"No output from user discovery command\"\
+        \n        }\n    \n    # Parse users from stdout - exclude system dirs and\
+        \ admin users\n    all_items = stdout.strip().split()\n    \n    # Directories/users\
+        \ to ignore\n    ignore_items = {\n        '.localized', 'Shared', 'Guest',\
+        \ '.DS_Store',\n        'admin', 'administrator', 'root'\n    }\n    \n  \
+        \  # Filter out admin users and system directories\n    regular_users = []\n\
+        \    for item in all_items:\n        if (item not in ignore_items and \n \
+        \           not item.startswith('_') and \n            'admin' not in item.lower()\
+        \ and \n            item not in ['daemon', 'nobody', 'root']):\n         \
+        \   regular_users.append(item)\n    \n    if not regular_users:\n        return\
+        \ {\n            \"success\": False,\n            \"error\": \"No regular\
+        \ user accounts found on system\"\n        }\n    \n    return {\n       \
+        \ \"success\": True,\n        \"primary_user\": regular_users[0],\n      \
+        \  \"all_users\": regular_users,\n        \"user_count\": len(regular_users),\n\
+        \        \"device_id\": device_id\n    }\n"
+    depends_on:
+    - list_users_on_the_host_device
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: parse_user_results
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: ls
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: ls "/Users/${{ACTIONS.parse_user_results.result.primary_user}}/Library/Application
+            Support/Google/Chrome"/*/History
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - parse_user_results
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: check_chrome_installation
+    retry_policy:
+      max_attempts: 5
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.parse_user_results.result.success == True && ACTIONS.parse_user_results.result.user_count
+      > 0 }}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        discovery_response: ${{ ACTIONS.check_chrome_installation.result }}
+        username: ${{ ACTIONS.parse_user_results.result.primary_user }}
+      script: "def main(discovery_response, username):\n    # Get the combined resources\n\
+        \    combined = discovery_response.get(\"body\", {}).get(\"combined\", {})\n\
+        \    resources = combined.get(\"resources\", {})\n    \n    if not resources:\n\
+        \        return {\n            \"success\": False,\n            \"error\"\
+        : f\"No Chrome history files found for user {username}\"\n        }\n    \n\
+        \    # Get the device result dynamically\n    device_id = list(resources.keys())[0]\n\
+        \    device_result = resources[device_id]\n    \n    # Check if command completed\n\
+        \    if not device_result.get(\"complete\"):\n        return {\n         \
+        \   \"success\": False,\n            \"error\": \"Chrome history discovery\
+        \ did not complete\"\n        }\n    \n    stdout = device_result.get(\"stdout\"\
+        , \"\")\n    stderr = device_result.get(\"stderr\", \"\")\n    \n    # Check\
+        \ for errors\n    if stderr and \"No such file or directory\" in stderr:\n\
+        \        return {\n            \"success\": False,\n            \"error\"\
+        : f\"Chrome not installed or no history files found for user {username}\"\n\
+        \        }\n    \n    if not stdout:\n        return {\n            \"success\"\
+        : False,\n            \"error\": f\"No Chrome history files found for user\
+        \ {username}\"\n        }\n    \n    # Parse the file paths\n    history_files\
+        \ = []\n    for line in stdout.strip().split('\\n'):\n        if line.strip()\
+        \ and 'History' in line:\n            # Extract profile name from path\n \
+        \           path_parts = line.split('/')\n            profile_name = path_parts[-2]\
+        \  # Get the directory name before \"History\"\n            \n           \
+        \ history_files.append({\n                \"profile_name\": profile_name,\n\
+        \                \"history_path\": line.strip(),\n                \"relative_path\"\
+        : f\"Chrome/{profile_name}/History\"\n            })\n    \n    if not history_files:\n\
+        \        return {\n            \"success\": False,\n            \"error\"\
+        : f\"No valid Chrome history files found for user {username}\"\n        }\n\
+        \    \n    return {\n        \"success\": True,\n        \"username\": username,\n\
+        \        \"history_file_count\": len(history_files),\n        \"history_files\"\
+        : history_files\n    }\n"
+    depends_on:
+    - check_chrome_installation
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: parse_all_chrome_history_files_found
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: cp
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: cp ${{ var.cmd.command_string }}
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - prepare_copy_commands
+    description: ''
+    environment: null
+    for_each:
+    - ${{ for var.cmd in ACTIONS.prepare_copy_commands.result.copy_commands }}
+    interaction: null
+    join_strategy: all
+    ref: copy_chrome_history_files
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.parse_hash_results.result.success == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: ls
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: ls -l /tmp/*_History
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - validate_files_were_copied_successfully
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: verify_files_were_copied_succesfully
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_files_were_copied_successfully.result.success ==
+      True }}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: filehash
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: filehash "${{ var.history_file.history_path }}"
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - parse_all_chrome_history_files_found
+    description: ''
+    environment: null
+    for_each:
+    - ${{ for var.history_file in ACTIONS.parse_all_chrome_history_files_found.result.history_files
+      }}
+    interaction: null
+    join_strategy: all
+    ref: generate_file_hashes
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.parse_all_chrome_history_files_found.result.success == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        hash_responses: ${{ ACTIONS.generate_file_hashes.result }}
+      script: "import re\n\ndef main(hash_responses):\n    original_hashes = []\n\
+        \    \n    for i, response in enumerate(hash_responses):\n        combined\
+        \ = response.get(\"body\", {}).get(\"combined\", {})\n        resources =\
+        \ combined.get(\"resources\", {})\n        \n        if resources:\n     \
+        \       device_id = list(resources.keys())[0]\n            device_result =\
+        \ resources[device_id]\n            \n            if device_result.get(\"\
+        complete\"):\n                stdout = device_result.get(\"stdout\", \"\"\
+        )\n                \n                # Extract hash values using regex\n \
+        \               filename_match = re.search(r'Filename\\s*:\\s*([^\\n]+?)\\\
+        s+MD5', stdout)\n                md5_match = re.search(r'MD5\\s*:\\s*([a-fA-F0-9]{32})',\
+        \ stdout)\n                sha1_match = re.search(r'SHA1\\s*:\\s*([a-fA-F0-9]{40})',\
+        \ stdout)\n                sha256_match = re.search(r'SHA256\\s*:\\s*([a-fA-F0-9]{64})',\
+        \ stdout)\n                \n                filename = filename_match.group(1).strip()\
+        \ if filename_match else \"\"\n                md5_hash = md5_match.group(1)\
+        \ if md5_match else \"\"\n                sha1_hash = sha1_match.group(1)\
+        \ if sha1_match else \"\"\n                sha256_hash = sha256_match.group(1)\
+        \ if sha256_match else \"\"\n                \n                hash_info =\
+        \ {\n                    \"file_index\": i + 1,\n                    \"source_type\"\
+        : \"original_file\",\n                    \"filename\": filename,\n      \
+        \              \"hash_details\": [\n                        f\"Filename: {filename}\"\
+        ,\n                        f\"MD5: {md5_hash}\",\n                       \
+        \ f\"SHA1: {sha1_hash}\",\n                        f\"SHA256: {sha256_hash}\"\
+        \n                    ],\n                    \"md5\": md5_hash,\n       \
+        \             \"sha1\": sha1_hash,\n                    \"sha256\": sha256_hash\n\
+        \                }\n                \n                original_hashes.append(hash_info)\n\
+        \    \n    return {\n        \"success\": True,\n        \"original_file_hashes\"\
+        : original_hashes,\n        \"total_original_hashes\": len(original_hashes)\n\
+        \    }\n"
+    depends_on:
+    - generate_file_hashes
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: parse_hash_results
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_case
+    args:
+      description: A remote API RTR session has been initiated for ${{ TRIGGER.Hostname
+        }} to extract chrome browser history for all profiles on the host's macOS
+        device
+      priority: critical
+      status: in_progress
+      summary: Chrome Browser Artefacts Extraction for ${{ TRIGGER.Hostname }} via
+        Crowdstrike RTR
+    depends_on: []
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: create_case
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: zip
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: zip -r "${{ ACTIONS.generate_utc_timestamp.result.zip_filename
+            }}" /tmp/*_History
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id
+    depends_on:
+    - validate_files_ready_for_zip
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: create_evidence_zip_archive
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_files_ready_for_zip.result.success == True }}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: filehash
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: filehash "${{ ACTIONS.generate_utc_timestamp.result.zip_filename
+            }}"
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - validate_zip_created
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: hash_the_evidence_zip_file
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_zip_created.result.success == True }}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: get
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: get "${{ ACTIONS.generate_utc_timestamp.result.zip_filename
+            }}"
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - validate_hash_successful
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: retrieve_evidence_zip
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_hash_successful.result.success == True }}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: rm
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: rm "${{ var.file.target_path }}"
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - validate_retrieval_successful
+    description: ''
+    environment: null
+    for_each:
+    - ${{ for var.file in ACTIONS.prepare_copy_commands.result.copy_commands }}
+    interaction: null
+    join_strategy: all
+    ref: cleanup_temporary_files
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_retrieval_successful.result.success == True }}
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: ls
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: ls -l /tmp/
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - cleanup_temporary_zip
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: list_files_in_tmp_directory
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 5.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        case_timestamp_info: ${{ ACTIONS.generate_utc_timestamp.result }}
+        cleanup_result: ${{ ACTIONS.cleanup_temporary_files.result }}
+        device_id: ${{ ACTIONS.extract_session_information.result.device_id }}
+        listing_result: ${{ ACTIONS.list_files_in_tmp_directory.result }}
+      script: "def main(listing_result, case_timestamp_info, cleanup_result, device_id):\n\
+        \       # cleanup_result is a LIST from the loop - check all results\n   \
+        \    if not cleanup_result or not isinstance(cleanup_result, list):\n    \
+        \       return {\n               \"cleanup_successful\": False,\n        \
+        \       \"error\": \"Cleanup command did not return results\",\n         \
+        \      \"verification_status\": \"FAILED: Cleanup command failed to execute\"\
+        \n           }\n       \n       # Check if ANY cleanup command had errors\n\
+        \       cleanup_errors = []\n       for result in cleanup_result:\n      \
+        \     cleanup_resources = result.get(\"body\", {}).get(\"combined\", {}).get(\"\
+        resources\", {})\n           if device_id in cleanup_resources:\n        \
+        \       cleanup_device = cleanup_resources[device_id]\n               cleanup_stderr\
+        \ = cleanup_device.get(\"stderr\", \"\")\n               cleanup_complete\
+        \ = cleanup_device.get(\"complete\", False)\n               \n           \
+        \    if not cleanup_complete or cleanup_stderr:\n                   cleanup_errors.append(cleanup_stderr)\n\
+        \       \n       if cleanup_errors:\n           return {\n               \"\
+        cleanup_successful\": False,\n               \"error\": f\"Cleanup errors:\
+        \ {cleanup_errors}\",\n               \"verification_status\": \"FAILED: Cleanup\
+        \ command encountered errors\"\n           }\n       \n       # Verify files\
+        \ are gone\n       resources = listing_result.get(\"body\", {}).get(\"combined\"\
+        , {}).get(\"resources\", {})\n       if not resources or device_id not in\
+        \ resources:\n           return {\n               \"cleanup_successful\":\
+        \ False,\n               \"error\": \"Unable to verify cleanup\",\n      \
+        \         \"verification_status\": \"UNKNOWN\"\n           }\n       \n  \
+        \     device_result = resources[device_id]\n       stdout = device_result.get(\"\
+        stdout\", \"\")\n       \n       case_number = case_timestamp_info.get(\"\
+        case_number\", \"\")\n       zip_pattern = f\"case_{case_number}_chrome_history_collection_\"\
+        \n       history_pattern = \"_History\"\n       \n       zip_file_exists =\
+        \ zip_pattern in stdout and \".zip\" in stdout\n       history_files_exist\
+        \ = history_pattern in stdout and zip_pattern not in stdout\n       \n   \
+        \    if not zip_file_exists and not history_files_exist:\n           status\
+        \ = \"SUCCESS: All temporary files and zip removed\"\n           cleanup_successful\
+        \ = True\n       else:\n           status = \"FAILED: Files and zip still\
+        \ exist\"\n           cleanup_successful = False\n       \n       return {\n\
+        \           \"cleanup_successful\": cleanup_successful,\n           \"verification_status\"\
+        : status,\n           \"raw_stdout\": stdout\n       }\n"
+    depends_on:
+    - list_files_in_tmp_directory
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: confirm_cleanup_of_temporary_files
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: 'User Account Discovery - Identified ${{ACTIONS.parse_user_results.result.user_count}}
+        regular user account(s) on target system. Primary user for collection: ''${{ACTIONS.parse_user_results.result.primary_user}}''.
+        System accounts filtered from scope.'
+    depends_on:
+    - parse_user_results
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_user_discovery_complete
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.parse_user_results.result.success == True && ACTIONS.parse_user_results.result.user_count
+      > 0 }}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: 'RTR Session Established - Remote terminal response session successfully
+        initiated with target endpoint ${{TRIGGER.Hostname}} (Device ID: ${{ACTIONS.validate_device_for_collection.result.device_id}})
+        at ${{ACTIONS.initialise_rtr_session.result.headers.Date}}. Platform: macOS.
+        Chain of custody initiated for Chrome browser history collection.'
+    depends_on:
+    - initialise_rtr_session
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_rtr_session_initialised
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.initialise_rtr_session.result.status_code == 201}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: Browser Evidence Located - Chrome installation confirmed for user '${{ACTIONS.parse_all_chrome_history_files_found.result.username}}'.
+        Discovered ${{ACTIONS.parse_all_chrome_history_files_found.result.history_file_count}}
+        Chrome profile(s) with history files. Evidence preservation initiated.
+    depends_on:
+    - parse_all_chrome_history_files_found
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_chrome_installation_verified
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.parse_all_chrome_history_files_found.result.success == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: Evidence Collection Phase - Original file integrity hashes generated.
+        Copying ${{ ACTIONS.parse_all_chrome_history_files_found.result.history_file_count
+        }} Chrome history file(s) to /tmp for secure packaging and upload.
+    depends_on:
+    - verify_files_were_copied_succesfully
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_forensic_collection_started
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_files_were_copied_successfully.result.success ==
+      True }}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: Evidence Packaging Complete - Chrome history artifacts successfully
+        archived and integrity-verified. Archive hash generated for chain of custody.
+        Evidence package retrieved via RTR and available for analysis. Original files
+        preserved on endpoint, temporary transfer files cleaned. Link to evidence
+        in falcon https:// .crowdstrike.com/real-time-response/sessions/audit-logs
+    depends_on:
+    - validate_retrieval_successful
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_evidence_archive_completed
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.validate_retrieval_successful.result.success == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ ACTIONS.create_case.result.id }}
+      content: 'Evidence Cleanup Verified - Temporary transfer files successfully
+        removed from endpoint per forensic protocol. All copied Chrome history files
+        and ZIP archive (case_${{ ACTIONS.generate_utc_timestamp.result.case_number
+        }}_chrome_history_collection_${{ ACTIONS.generate_utc_timestamp.result.utc_timestamp
+        }}.zip) deleted from /tmp/ following secure retrieval. Original Chrome history
+        files preserved in user profile for system integrity. Cleanup status: ${{
+        ACTIONS.confirm_cleanup_of_temporary_files.result.verification_status }}.
+        Evidence chain of custody maintained.'
+    depends_on:
+    - confirm_cleanup_of_temporary_files
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_evidence_files_removed
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.confirm_cleanup_of_temporary_files.result.cleanup_successful
+      == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: 'Forensic Collection Summary - Successfully collected Chrome browser
+        history for ${{ACTIONS.parse_user_results.result.user_count}} user(s) from
+        ${{ACTIONS.parse_all_chrome_history_files_found.result.history_file_count}}
+        profile(s). Evidence integrity maintained throughout collection process. RTR
+        session completed. Case ID: ${{ACTIONS.generate_utc_timestamp.result.case_id}}.'
+    depends_on:
+    - end_rtr_session
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_collection_summary
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: RTR_DeleteSession
+      params:
+        session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - confirm_cleanup_of_temporary_files
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: end_rtr_session
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ACTIONS.confirm_cleanup_of_temporary_files.result.cleanup_successful
+      == True}}
+    start_delay: 0.0
+    wait_until: null
+  - action: core.cases.create_comment
+    args:
+      case_id: ${{ACTIONS.create_case.result.id}}
+      content: 'RTR Session Terminated - Remote terminal response session gracefully
+        closed at completion of forensic collection.  All evidence collection activities
+        concluded. '
+    depends_on:
+    - end_rtr_session
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: case_comment_rtr_session_terminated
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "*RTR Session Established* :rocket-intensifies: \U0001F50D \n\nRemote\
+            \ terminal response session successfully initiated with target endpoint\
+            \ `${{TRIGGER.Hostname}}` \n(Device ID: `${{ACTIONS.validate_device_for_collection.result.device_id}})`\
+            \ at `${{ACTIONS.initialise_rtr_session.result.headers.Date}}`."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Session Details:*\n\u2022 Platform: macOS :macos-dark: \n\u2022\
+            \ Case ID: `${{ACTIONS.create_case.result.case_number}}`\n\nChain of custody\
+            \ initiated for Chrome :chrome: browser history collection."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      channel: 123546
+    depends_on:
+    - case_comment_rtr_session_initialised
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_rtr_session_initialised
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F464 *User Account Discovery Complete*\n\nIdentified ${{ACTIONS.parse_user_results.result.user_count}}\
+            \ regular user account(s) on target system."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: '*Primary User:* `${{ACTIONS.parse_user_results.result.primary_user}}`
+
+            *Case ID:* `${{ACTIONS.create_case.result.case_number}}`
+
+
+            System accounts filtered from scope.'
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      channel: 1234567
+    depends_on:
+    - case_comment_user_discovery_complete
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_user_discovery_complete
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F310 *Browser Evidence Located* :file_folder:\n\n:chrome: Chrome\
+            \ installation confirmed for user '${{ACTIONS.parse_all_chrome_history_files_found.result.username}}'."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Evidence Found:*\n\u2022 `${{ACTIONS.parse_all_chrome_history_files_found.result.history_file_count}}`\
+            \ Chrome profile(s) with history files\n\u2022 Case ID: `${{ACTIONS.create_case.result.case_number}}`\n\
+            \nEvidence preservation initiated."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https://https:// .crowdstrike.com/real-time-response/sessions/audit-logs?info=${{|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      channel: 1235467
+    depends_on:
+    - case_comment_chrome_installation_verified
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_chrome_installation_verified
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F4E6 *Evidence Collection Phase Started*\n\nForensic collection\
+            \ copied to the users' /tmp directory :terminal:"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Status:*\n\u2022 Original file integrity hashes generated\n\u2022\
+            \ Secure copy of Chrome history artifacts initiated\n\u2022 Case ID: `${{ACTIONS.create_case.result.case_number}}`"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https://https:// .crowdstrike.com/real-time-response/sessions/audit-logs?info=${{|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      channel: 1234567
+    depends_on:
+    - case_comment_forensic_collection_started
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_forensic_collection_started
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\u2705 *Evidence Packaging Complete*\n\n:chrome: Chrome history artifacts\
+            \ successfully archived and integrity-verified."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Archive Details:*\n\u2022 Archive hash generated for chain of custody\n\
+            \u2022 Evidence package retrieved via RTR\n\u2022 Original files preserved\
+            \ on endpoint\n\u2022 Temporary transfer files cleaned\n\u2022 Case ID:\
+            \ `${{ACTIONS.create_case.result.case_number}}`"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - case_comment_evidence_archive_completed
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_evidence_archive_complete
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F9F9 *Evidence Cleanup Verified* :white_check_mark:\n\nTemporary\
+            \ transfer files successfully removed from endpoint per forensic protocol.\
+            \ :sherlock1:"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Cleanup Details:*\n\u2022 ZIP archive deleted from /tmp/ following\
+            \ secure retrieval\n\u2022 Original forensic collection directory preserved\
+            \ on endpoint\n\u2022 Status: `${{ACTIONS.confirm_cleanup_of_temporary_files.result.verification_status}}`\n\
+            \u2022 Case ID: `${{ACTIONS.create_case.result.case_number}}`\n\nEvidence\
+            \ chain of custody maintained."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - case_comment_evidence_files_removed
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_evidence_cleanup_complete
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "*RTR Session Successfully Terminated* \u2705\n\nYour forensic investigation\
+            \ workflow has completed successfully! All Chrome history files have been\
+            \ collected and secured."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F4CA Session Summary:*\n\u2022 *Batch ID:* `${{ACTIONS.extract_session_information.result.batch_id}}`\n\
+            \u2022 *Case ID:* `${{ACTIONS.create_case.result.case_number}}`\n\u2022\
+            \ *Status:* Collection completed successfully"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Quick Actions:*\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*View\
+            \ Case Details*> - Review collected evidence\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - View session activity"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Forensic investigation workflow complete* \u2728"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - case_comment_rtr_session_terminated
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: post_message_rtr_session_terminated
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - get_device_details.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_1
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - initialise_rtr_session.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_2
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - list_users_on_the_host_device.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_3
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - parse_all_chrome_history_files_found.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_4
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - generate_file_hashes.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_5
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - copy_chrome_history_files.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_6
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - hash_the_evidence_zip_file.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_7
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: "\U0001F6A8 *Forensic Collection Workflow Failed*\n\nThe Chrome history\
+            \ collection workflow has encountered an error and could not complete\
+            \ successfully."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Failure Details:*\n\u2022 Target Device: ${{TRIGGER.Hostname}}\n\
+            \u2022 Case ID: ${{ACTIONS.create_case.result.case_number}}\n\u2022 Timestamp:\
+            \ ${{FN.now()}}"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*Immediate Actions Required:*\n\u2022 Review workflow execution\n\
+            \u2022 Investigate failure cause\n\u2022 Manual intervention may be required\n\
+            \u2022 Consider re-running collection if safe to do so"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "*\U0001F517 Investigation Links:*\n\u2022 <https:// .tracecat.com/workspaces/XX/workflows|*View\
+            \ Workflow Execution*> - Review failure details\n\u2022 <https:// .tracecat.com/workspaces/XX/cases|*Case\
+            \ Management*> - Review case status\n\u2022 <https:// .crowdstrike.com/real-time-response/sessions/audit-logs|*RTR\
+            \ Audit Logs*> - Check RTR session status"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: "\u26A0\uFE0F *Forensic collection incomplete - manual review required*"
+          type: mrkdwn
+        type: section
+      channel: 123456
+    depends_on:
+    - cleanup_temporary_zip.error
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: failure_notification_8
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        case_info: ${{ ACTIONS.create_case.result }}
+      script: "def main(case_info):\n  from datetime import datetime, timezone\n \
+        \ \n  # Use UTC timestamp in YYYY-MM-DD_HH-MM-SS format for better readability\n\
+        \  utc_now = datetime.now(timezone.utc)\n  utc_timestamp = utc_now.strftime(\"\
+        %Y-%m-%d_%H-%M-%S\")\n  case_number = case_info.get(\"case_number\", \"UNKNOWN\"\
+        )\n  \n  return {\n      \"utc_timestamp\": utc_timestamp,\n      \"case_number\"\
+        : case_number,\n      \"zip_filename\": f\"/tmp/case_{case_number}_chrome_history_collection_{utc_timestamp}.zip\"\
+        ,\n      \"zip_file\": f\"case_{case_number}_chrome_history_collection_{utc_timestamp}.zip\"\
+        ,\n      \"case_id\": f\"CASE_{case_number}_CHROME_{utc_timestamp}\"\n  }\n"
+    depends_on:
+    - verify_files_were_copied_succesfully
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: generate_utc_timestamp
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        copy_results: ${{ ACTIONS.copy_chrome_history_files.result }}
+        device_id: ${{ ACTIONS.extract_session_information.result.device_id }}
+        expected_count: ${{ ACTIONS.parse_all_chrome_history_files_found.result.history_file_count
+          }}
+      script: "def main(copy_results, device_id, expected_count):\n       all_successful\
+        \ = True\n       failed_copies = []\n       successful_count = 0\n       \n\
+        \       for i, result in enumerate(copy_results):\n           resources =\
+        \ result.get(\"body\", {}).get(\"combined\", {}).get(\"resources\", {})\n\
+        \           if device_id in resources:\n               device_result = resources[device_id]\n\
+        \               errors = device_result.get(\"errors\", [])\n             \
+        \  complete = device_result.get(\"complete\", False)\n               stderr\
+        \ = device_result.get(\"stderr\", \"\")\n               stdout = device_result.get(\"\
+        stdout\", \"\")\n               \n               # Check for actual errors\
+        \ in stderr\n               has_error = (\n                   not complete\
+        \ or \n                   len(errors) > 0 or\n                   \"no such\
+        \ file\" in stderr.lower() or\n                   \"not found\" in stderr.lower()\
+        \ or\n                   \"none\" in stderr.lower()\n               )\n  \
+        \             \n               if has_error:\n                   all_successful\
+        \ = False\n                   failed_copies.append({\n                   \
+        \    \"index\": i + 1,\n                       \"errors\": errors,\n     \
+        \                  \"stderr\": stderr,\n                       \"complete\"\
+        : complete\n                   })\n               else:\n                \
+        \   successful_count += 1\n       \n       # Verify all expected files were\
+        \ copied\n       if successful_count < expected_count:\n           all_successful\
+        \ = False\n       \n       return {\n           \"success\": all_successful,\n\
+        \           \"successful_count\": successful_count,\n           \"expected_count\"\
+        : expected_count,\n           \"failed_count\": len(failed_copies),\n    \
+        \       \"failed_copies\": failed_copies,\n           \"message\": f\"Copied\
+        \ {successful_count}/{expected_count} files\"\n       }\n"
+    depends_on:
+    - copy_chrome_history_files
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: validate_files_were_copied_successfully
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        device_id: ${{ ACTIONS.extract_session_information.result.device_id }}
+        expected_file_count: ${{ ACTIONS.parse_all_chrome_history_files_found.result.history_file_count
+          }}
+        verification_result: ${{ ACTIONS.verify_files_were_copied_succesfully.result
+          }}
+      script: "def main(verification_result, device_id, expected_file_count):\n  \
+        \    resources = verification_result.get(\"body\", {}).get(\"combined\", {}).get(\"\
+        resources\", {})\n      \n      if not resources or device_id not in resources:\n\
+        \          return {\n              \"success\": False,\n              \"error\"\
+        : \"No verification result found\"\n          }\n      \n      device_result\
+        \ = resources[device_id]\n      stdout = device_result.get(\"stdout\", \"\"\
+        )\n      stderr = device_result.get(\"stderr\", \"\")\n      \n      # Check\
+        \ if command completed\n      if not device_result.get(\"complete\", False):\n\
+        \          return {\n              \"success\": False,\n              \"error\"\
+        : \"Verification command did not complete\"\n          }\n      \n      #\
+        \ Check for errors\n      errors = device_result.get(\"errors\", [])\n   \
+        \   if len(errors) > 0:\n          return {\n              \"success\": False,\n\
+        \              \"error\": f\"Verification errors: {errors}\"\n          }\n\
+        \      \n      # Parse stdout to count files\n      if not stdout or stdout.strip()\
+        \ == \"\":\n          return {\n              \"success\": False,\n      \
+        \        \"error\": \"No files found in /tmp - copy operation failed\"\n \
+        \         }\n      \n      # Count lines with _History\n      lines = stdout.strip().split('\\\
+        n')\n      history_files = [line for line in lines if '_History' in line]\n\
+        \      files_found = len(history_files)\n      \n      # Verify we have the\
+        \ expected number of files\n      if files_found < expected_file_count:\n\
+        \          return {\n              \"success\": False,\n              \"error\"\
+        : f\"Expected {expected_file_count} files but only found {files_found}\",\n\
+        \              \"files_found\": files_found\n          }\n      \n      return\
+        \ {\n          \"success\": True,\n          \"files_found\": files_found,\n\
+        \          \"expected_count\": expected_file_count,\n          \"message\"\
+        : f\"All {files_found} history files verified and ready for zipping\"\n  \
+        \    }\n"
+    depends_on:
+    - generate_utc_timestamp
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: validate_files_ready_for_zip
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        device_id: ${{ ACTIONS.extract_session_information.result.device_id }}
+        zip_filename: ${{ ACTIONS.generate_utc_timestamp.result.zip_filename }}
+        zip_result: ${{ ACTIONS.create_evidence_zip_archive.result }}
+      script: "def main(zip_result, device_id, zip_filename):\n    resources = zip_result.get(\"\
+        body\", {}).get(\"combined\", {}).get(\"resources\", {})\n    \n    if not\
+        \ resources or device_id not in resources:\n        return {\n           \
+        \ \"success\": False,\n            \"error\": \"No zip result found\"\n  \
+        \      }\n    \n    device_result = resources[device_id]\n    stdout = device_result.get(\"\
+        stdout\", \"\")\n    stderr = device_result.get(\"stderr\", \"\")\n    complete\
+        \ = device_result.get(\"complete\", False)\n    \n    # Check if command completed\n\
+        \    if not complete:\n        return {\n            \"success\": False,\n\
+        \            \"error\": \"Zip command did not complete\"\n        }\n    \n\
+        \    # Check for errors in stderr\n    if stderr and (\"error\" in stderr.lower()\
+        \ or \"not found\" in stderr.lower() or \"no matches\" in stderr.lower()):\n\
+        \        return {\n            \"success\": False,\n            \"error\"\
+        : f\"Zip creation failed: {stderr}\"\n        }\n    \n    # Check if stdout\
+        \ indicates success (zip usually outputs \"adding: filename\")\n    if \"\
+        adding:\" not in stdout.lower() and \"updating:\" not in stdout.lower():\n\
+        \        return {\n            \"success\": False,\n            \"error\"\
+        : f\"Zip did not add any files. stdout: {stdout}, stderr: {stderr}\"\n   \
+        \     }\n    \n    # Count how many files were added\n    added_files = [line\
+        \ for line in stdout.split('\\n') if 'adding:' in line.lower() or 'updating:'\
+        \ in line.lower()]\n    \n    return {\n        \"success\": True,\n     \
+        \   \"zip_filename\": zip_filename,\n        \"files_added\": len(added_files),\n\
+        \        \"message\": f\"Zip created successfully with {len(added_files)}\
+        \ files\"\n    }\n"
+    depends_on:
+    - create_evidence_zip_archive
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: validate_zip_created
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        device_id: ${{ ACTIONS.extract_session_information.result.device_id }}
+        hash_result: ${{ ACTIONS.hash_the_evidence_zip_file.result }}
+      script: "def main(hash_result, device_id):\n    resources = hash_result.get(\"\
+        body\", {}).get(\"combined\", {}).get(\"resources\", {})\n    \n    if not\
+        \ resources or device_id not in resources:\n        return {\n           \
+        \ \"success\": False,\n            \"error\": \"No hash result found\"\n \
+        \       }\n    \n    device_result = resources[device_id]\n    stdout = device_result.get(\"\
+        stdout\", \"\")\n    stderr = device_result.get(\"stderr\", \"\")\n    complete\
+        \ = device_result.get(\"complete\", False)\n    \n    # Check if command completed\n\
+        \    if not complete:\n        return {\n            \"success\": False,\n\
+        \            \"error\": \"Hash command did not complete\"\n        }\n   \
+        \ \n    # Check for file not found errors\n    if stderr and (\"not found\"\
+        \ in stderr.lower() or \"couldn't find\" in stderr.lower()):\n        return\
+        \ {\n            \"success\": False,\n            \"error\": f\"File not found\
+        \ for hashing: {stderr}\"\n        }\n    \n    # Check if hash values are\
+        \ in stdout (MD5, SHA1, SHA256)\n    if not stdout or \"MD5\" not in stdout\
+        \ or \"SHA256\" not in stdout:\n        return {\n            \"success\"\
+        : False,\n            \"error\": f\"No valid hash output. stdout: {stdout},\
+        \ stderr: {stderr}\"\n        }\n    \n    return {\n        \"success\":\
+        \ True,\n        \"message\": \"Zip file exists and hash generated successfully\"\
+        ,\n        \"hash_output\": stdout\n    }\n"
+    depends_on:
+    - hash_the_evidence_zip_file
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: validate_hash_successful
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        device_id: ${{ ACTIONS.extract_session_information.result.device_id }}
+        retrieval_result: ${{ ACTIONS.retrieve_evidence_zip.result }}
+      script: "def main(retrieval_result, device_id):\n    resources = retrieval_result.get(\"\
+        body\", {}).get(\"combined\", {}).get(\"resources\", {})\n    \n    if not\
+        \ resources or device_id not in resources:\n        return {\n           \
+        \ \"success\": False,\n            \"error\": \"No retrieval result found\"\
+        \n        }\n    \n    device_result = resources[device_id]\n    stdout =\
+        \ device_result.get(\"stdout\", \"\")\n    stderr = device_result.get(\"stderr\"\
+        , \"\")\n    complete = device_result.get(\"complete\", False)\n    \n   \
+        \ # Check if command completed\n    if not complete:\n        return {\n \
+        \           \"success\": False,\n            \"error\": \"Retrieval command\
+        \ did not complete\"\n        }\n    \n    # Check for file not found errors\n\
+        \    if stderr and (\"couldn't find\" in stderr.lower() or \"not found\" in\
+        \ stderr.lower()):\n        return {\n            \"success\": False,\n  \
+        \          \"error\": f\"File not found for retrieval: {stderr}\"\n      \
+        \  }\n    \n    # Check if file was actually retrieved (stdout should show\
+        \ file info)\n    if not stdout or stdout.strip() == \"\":\n        return\
+        \ {\n            \"success\": False,\n            \"error\": f\"No retrieval\
+        \ confirmation. stderr: {stderr}\"\n        }\n    \n    return {\n      \
+        \  \"success\": True,\n        \"message\": \"Evidence zip successfully uploaded\
+        \ to RTR cloud\",\n        \"retrieval_output\": stdout\n    }\n"
+    depends_on:
+    - retrieve_evidence_zip
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: validate_retrieval_successful
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: core.script.run_python
+    args:
+      inputs:
+        history_files: ${{ ACTIONS.parse_all_chrome_history_files_found.result.history_files
+          }}
+      script: "def main(history_files):\n         if not history_files or len(history_files)\
+        \ == 0:\n             return {\n                 \"success\": False,\n   \
+        \              \"error\": \"No history files to copy\"\n             }\n \
+        \        \n         copy_commands = []\n         \n         for i, file_info\
+        \ in enumerate(history_files, 1):\n             history_path = file_info.get(\"\
+        history_path\")\n             profile_name = file_info.get(\"profile_name\"\
+        , f\"Profile_{i}\")\n             \n             # Handle profile names with\
+        \ spaces\n             safe_profile_name = profile_name.replace(\" \", \"\
+        _\")\n             \n             # Target file in /tmp\n             target_path\
+        \ = f\"/tmp/{safe_profile_name}_History\"\n             \n             # RTR\
+        \ cp command with 2 properly quoted arguments\n             command = f'cp\
+        \ \"{history_path}\" \"{target_path}\"'\n             \n             copy_commands.append({\n\
+        \                 \"command_string\": f'\"{history_path}\" \"{target_path}\"\
+        ',\n                 \"profile_number\": i,\n                 \"profile_name\"\
+        : safe_profile_name,\n                 \"source_path\": history_path,\n  \
+        \               \"target_path\": target_path\n             })\n         \n\
+        \         return {\n             \"success\": True,\n             \"copy_commands\"\
+        : copy_commands,\n             \"total_files\": len(copy_commands)\n     \
+        \    }\n"
+    depends_on:
+    - parse_hash_results
+    description: ''
+    environment: null
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: prepare_copy_commands
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.falconpy.call_command
+    args:
+      operation_id: BatchAdminCmd
+      params:
+        body:
+          base_command: rm
+          batch_id: ${{ ACTIONS.extract_session_information.result.batch_id }}
+          command_string: rm "${{ ACTIONS.generate_utc_timestamp.result.zip_filename
+            }}"
+          session_id: ${{ ACTIONS.extract_session_information.result.session_id }}
+    depends_on:
+    - cleanup_temporary_files
+    description: ''
+    environment: null
+    for_each: []
+    interaction: null
+    join_strategy: all
+    ref: cleanup_temporary_zip
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: ${{ ACTIONS.validate_retrieval_successful.result.success == True }}
+    start_delay: 0.0
+    wait_until: null
+  config:
+    environment: default
+    timeout: 300.0
+  description: Using FalconPY
+  entrypoint:
+    expects: {}
+    ref: null
+  error_handler: ''
+  returns: null
+  title: RTR - Extract Chrome Browser History on macOS machines
+  triggers: []
+updated_at: '2025-11-25T14:54:18.868320Z'
+version: 1
+workflow_id: 506f8468-a148-4a61-8d4a-e8097ea8a923
+workspace_id: a123abc9-ab1a-1ab2-a1bc-abc12345a1a2
