@@ -1,0 +1,256 @@
+created_at: '2026-05-13T14:48:04.895857Z'
+definition:
+  actions:
+  - action: ai.action
+    args:
+      instructions: 'You are a Slack message formatter for security investigations.
+        Given two investigation reports (one from code search, one from endpoint search),
+        produce a concise summary as plain mrkdwn text.
+
+
+        IMPORTANT: Return ONLY plain text with Slack mrkdwn formatting. No JSON. No
+        code fences. No Block Kit JSON. Just the raw text content.
+
+
+        Format:
+
+
+        Line 1: Status emoji + bold overall verdict
+
+        - :rotating_light: *Confirmed Exposure* if either source found the malicious
+        package in use
+
+        - :warning: *Possible Exposure* if matches found but inconclusive
+
+        - :white_check_mark: *No Exposure Detected* if both searches came back clean
+
+
+        Then two sections:
+
+
+        *Code Repositories (Sourcegraph)*
+
+        2-3 bullet points summarizing repo findings
+
+
+        *Endpoints (CrowdStrike Falcon)*
+
+        2-3 bullet points summarizing device findings
+
+
+        Then if applicable:
+
+        *Recommended Actions*
+
+        1-3 numbered steps
+
+
+        Rules:
+
+        - Maximum 15 lines total
+
+        - No tables, no code blocks, no JSON
+
+        - Package counts not full lists
+
+        - Be terse
+
+        - Output MUST be a simple plain text string'
+      model:
+        catalog_id: f84b0039-9b28-40ad-8e8c-65bc780aca38
+        model_name: gpt-5.5
+        model_provider: openai
+      user_prompt: 'Summarize these two investigations:
+
+
+        --- SOURCEGRAPH RESULTS ---
+
+        ${{ ACTIONS.search_sourcegraph.result.output }}
+
+
+        --- FALCON RESULTS ---
+
+        ${{ ACTIONS.search_falcon.result.output }}'
+    depends_on:
+    - create_case
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: generate_slack_summary
+    retry_policy:
+      max_attempts: 2
+      timeout: 120
+    start_delay: 0.0
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          emoji: true
+          text: Supply Chain Package Exposure Investigation
+          type: plain_text
+        type: header
+      - elements:
+        - text: ':shield: Automated investigation | Sourcegraph + CrowdStrike Falcon'
+          type: mrkdwn
+        type: context
+      - type: divider
+      - text:
+          text: ${{ ACTIONS.generate_slack_summary.result.output }}
+          type: mrkdwn
+        type: section
+      - type: divider
+      - elements:
+        - text: ':link: <https://platform.tracecat.com/workspaces/X/cases/${{
+            ACTIONS.create_case.result.id }}|View Full Investigation in Tracecat>'
+          type: mrkdwn
+        type: context
+      channel: XXXX
+      text: Supply Chain Exposure Investigation complete
+    depends_on:
+    - generate_slack_summary
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: post_to_slack
+    retry_policy:
+      max_attempts: 2
+      timeout: 300
+    start_delay: 0.0
+  - action: ai.preset_agent
+    args:
+      preset: malicious-package-exposure-investigator
+      user_prompt: 'SCOPE: Sourcegraph code search ONLY. Do NOT use Falcon or endpoint
+        tools.
+
+
+        Search our code repositories for any references to the following compromised/malicious
+        packages. Check dependency manifests (package.json, yarn.lock, package-lock.json,
+        pnpm-lock.yaml), import statements, lockfiles, and any other code references.
+
+
+        For each match, report: repository, file path, package version found, branch,
+        and whether it''s a direct or transitive dependency.
+
+
+        Affected packages:
+
+        @tanstack/history: 1.161.9, 1.161.12
+
+        '
+    depends_on: []
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: search_sourcegraph
+    retry_policy:
+      max_attempts: 2
+      timeout: 600
+    start_delay: 0.0
+  - action: ai.preset_agent
+    args:
+      preset: malicious-package-exposure-investigator
+      user_prompt: 'SCOPE: CrowdStrike Falcon endpoint search ONLY. Do NOT use Sourcegraph
+        or code search tools.
+
+
+        Search endpoint telemetry for evidence that the following compromised packages
+        were installed, executed, or present on any devices. Check:
+
+        - Software/application inventory for the package names
+
+        - NGSIEM events for npm/yarn install commands referencing these packages
+
+        - File paths matching node_modules/<package-name> directories
+
+        - Process execution from package directories (postinstall scripts)
+
+        - Network connections to any known C2 indicators
+
+
+        Affected packages:
+
+        @tanstack/history: 1.161.9, 1.161.12
+
+        '
+    depends_on: []
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: search_falcon
+    retry_policy:
+      max_attempts: 2
+      timeout: 600
+    start_delay: 0.0
+  - action: core.cases.create_case
+    args:
+      create_missing_tags: true
+      description: '## Code Repository Exposure (Sourcegraph)
+
+
+        ${{ ACTIONS.search_sourcegraph.result.output }}
+
+
+        ---
+
+
+        ## Endpoint Exposure (CrowdStrike Falcon)
+
+
+        ${{ ACTIONS.search_falcon.result.output }}'
+      payload:
+        source: malicious-package-exposure-investigator
+      priority: high
+      severity: high
+      status: new
+      summary: "Supply Chain Exposure Investigation \u2014 Malicious Package Advisory"
+      tags:
+      - supply-chain
+      - malicious-package
+    depends_on:
+    - search_falcon
+    - search_sourcegraph
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: create_case
+    retry_policy:
+      max_attempts: 2
+      timeout: 300
+    start_delay: 0.0
+  config:
+    environment: default
+    timeout: 0.0
+  description: Investigates compromised/malicious package advisories by searching
+    code repos (Sourcegraph) and endpoints (Falcon) in parallel for exposure.
+  entrypoint:
+    expects: {}
+  title: Malicious Package Exposure Investigation
+  triggers: []
+layout:
+  actions:
+  - ref: create_case
+    x: -5.333333333333343
+    y: 661.3333333333334
+  - ref: generate_slack_summary
+    x: -5.333333333333371
+    y: 863.9999999999999
+  - ref: post_to_slack
+    x: -5.333333333333314
+    y: 1086.6666666666665
+  - ref: search_falcon
+    x: 300.0
+    y: 400.0
+  - ref: search_sourcegraph
+    x: -300.0
+    y: 400.0
+  trigger:
+    x: 0.0
+    y: 0.0
+  viewport:
+    x: 332.51292360712233
+    y: 50.0
+    zoom: 0.8788052843193568
+updated_at: '2026-05-13T14:48:04.895857Z'
+version: 29
+workflow_id: 4f26352c-9681-4500-a5f3-19b2f581f948
+workspace_id: 6aa4dda0-e649-47aa-b026-82d418464386
