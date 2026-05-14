@@ -9,6 +9,7 @@ A collection of production-ready security automation workflows for [Tracecat](ht
 | Workflow | Description | Platform |
 |----------|-------------|----------|
 | [Automating macOS Chrome History Collection](./automating-chrome-history-collection-using-crowdstrike-and-tracecat/) | Forensic collection of Chrome browser history via CrowdStrike RTR | macOS |
+| [Malicious Package Exposure Investigation](./malicious-package-exposure-investigation/) | Parallel supply-chain exposure check across code (Sourcegraph) and endpoints (CrowdStrike Falcon) via MCP | Cross-platform |
 
 ---
 
