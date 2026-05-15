@@ -1,0 +1,447 @@
+created_at: '2026-05-15T17:58:46.282246Z'
+definition:
+  actions:
+  - action: core.transform.reshape
+    args:
+      value:
+        action_taken: ${{ TRIGGER.data["investigatable.product.epp.behavior.pattern_disposition_id"]
+          }}
+        command_line: ${{ TRIGGER.data["investigatable.product.epp.process.command_line"]
+          }}
+        email: ${{ TRIGGER.data["investigatable.product.epp.process.user_name"] }}@company.com
+        event_url: ${{ TRIGGER.meta.event_reference_url }}
+        external_ip: ${{ TRIGGER.data["investigatable.product.epp.sensor.external_ip"]
+          }}
+        hostname: ${{ TRIGGER.data["investigatable.product.epp.sensor.hostname"] }}
+        ioa_name: ${{ TRIGGER.data["investigatable.product.epp.behavior.ioa_name"]
+          }}
+        os_version: ${{ TRIGGER.data["investigatable.product.epp.sensor.os_version"]
+          }}
+        parent_cmdline: ${{ TRIGGER.data["investigatable.product.epp.parent_process.command_line"]
+          }}
+        severity: ${{ TRIGGER.data["investigatable.severity"] }}
+        timestamp: ${{ TRIGGER.data["investigatable.product.epp.behavior.timestamp"]
+          }}
+        user_name: ${{ TRIGGER.data["investigatable.product.epp.process.user_name"]
+          }}
+    depends_on: []
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: build_context
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: core.cases.create_case
+    args:
+      create_missing_tags: true
+      description: "# Investigation Report: CrowdStrike Custom IOA Detection\n\n\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n## Detection Details\n\
+        \n| Field | Value |\n|-------|-------|\n| **IOA Rule** | ${{ ACTIONS.build_context.result.ioa_name\
+        \ }} |\n| **Hostname** | `${{ ACTIONS.build_context.result.hostname }}` |\n\
+        | **Username** | `${{ ACTIONS.build_context.result.user_name }}` |\n| **Email**\
+        \ | ${{ ACTIONS.build_context.result.email }} |\n| **External IP** | `${{\
+        \ ACTIONS.build_context.result.external_ip }}` |\n| **OS Version** | ${{ ACTIONS.build_context.result.os_version\
+        \ }} |\n| **Severity** | ${{ ACTIONS.build_context.result.severity }} |\n\
+        | **Action Taken** | ${{ ACTIONS.build_context.result.action_taken }} |\n\
+        | **Timestamp** | ${{ ACTIONS.build_context.result.timestamp }} |\n\n## Command\
+        \ Line (Blocked)\n\n```\n${{ ACTIONS.build_context.result.command_line }}\n\
+        ```\n\n## Parent Process\n\n```\n${{ ACTIONS.build_context.result.parent_cmdline\
+        \ }}\n```\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\
+        \n## Slack Thread: User Notification (DM)\n\n\U0001F6E1\uFE0F **Security Control\
+        \ Notification**\n\nHey @${{ ACTIONS.build_context.result.user_name }} \U0001F44B\
+        \n\nOur endpoint security system (CrowdStrike) just **blocked an action**\
+        \ on your machine. Don't worry \u2014 this is a protective measure, and your\
+        \ machine is safe.\n\n\U0001F6AB **What was blocked:** A command was run using\
+        \ Claude Code's `--dangerously-skip-permissions` flag. This flag turns off\
+        \ Claude's built-in safety prompts, which means it could run commands, edit\
+        \ files, or access sensitive data without asking first.\n\n- Machine: `${{\
+        \ ACTIONS.build_context.result.hostname }}`\n- When: ${{ ACTIONS.build_context.result.timestamp\
+        \ }}\n- Action Taken: ${{ ACTIONS.build_context.result.action_taken }}\n-\
+        \ Severity: ${{ ACTIONS.build_context.result.severity }}\n- Command: `${{\
+        \ ACTIONS.build_context.result.command_line }}`\n\n\U0001F4A1 **Why does this\
+        \ matter?** When Claude Code runs without permission guardrails, it can execute\
+        \ shell commands, write to any file, and read environment variables (including\
+        \ API keys, tokens, and credentials) \u2014 all without prompting you for\
+        \ approval.\n\n\u2705 **What to do instead:**\n1. Use Claude Code normally\
+        \ \u2014 it will ask before taking any risky actions\n2. Avoid the `--dangerously-skip-permissions`\
+        \ and `--allow-dangerously-skip-permissions` flags\n3. If you need broader\
+        \ permissions, reach out to the Security team\n\n\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\n\n## Slack Thread: Automated Response (posted\
+        \ to #crowdstrike-alerts)\n\n\u2705 **Automated Response**\n\n@${{ ACTIONS.build_context.result.user_name\
+        \ }} (`${{ ACTIONS.build_context.result.email }}`) has been notified via DM\
+        \ with:\n\u2022 Explanation of what was blocked and why\n\u2022 Guidance on\
+        \ safe Claude Code usage\n\u2022 Pointer to #security-help for questions\n\
+        \n- Command: `${{ ACTIONS.build_context.result.command_line }}`\n- Host: `${{\
+        \ ACTIONS.build_context.result.hostname }}`\n\n\U0001F916 Automated by Tracecat\
+        \ | \U0001F517 Falcon Event: ${{ ACTIONS.build_context.result.event_url }}\n\
+        \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n## Slack\
+        \ Thread: AI Investigation Report\n\n${{ ACTIONS.investigate_and_post.result\
+        \ }}\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\
+        \n## Automated Actions Summary\n\n| Action | Status | Details |\n|--------|--------|--------|\n\
+        | User DM | \u2705 Sent | User notified via Slack with explanation and guidance\
+        \ |\n| Alert Thread Reply | \u2705 Posted | #crowdstrike-alerts thread\
+        \ updated |\n| AI Investigation | \u2705 Complete | CrowdStrike Investigator\
+        \ Agent posted full analysis |\n| Case Created | \u2705 This case | Full investigation\
+        \ documented with all thread content |\n\n\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\n\n*Investigation conducted by Tracecat CrowdStrike\
+        \ Investigator Agent \u2022 Workflow: Crowdstrike Custom IOA (Claude Code\
+        \ Detections)*"
+      payload:
+        action_taken: ${{ ACTIONS.build_context.result.action_taken }}
+        command_line: ${{ ACTIONS.build_context.result.command_line }}
+        email: ${{ ACTIONS.build_context.result.email }}
+        event_url: ${{ ACTIONS.build_context.result.event_url }}
+        external_ip: ${{ ACTIONS.build_context.result.external_ip }}
+        hostname: ${{ ACTIONS.build_context.result.hostname }}
+        ioa_name: ${{ ACTIONS.build_context.result.ioa_name }}
+        parent_cmdline: ${{ ACTIONS.build_context.result.parent_cmdline }}
+        severity: ${{ ACTIONS.build_context.result.severity }}
+        timestamp: ${{ ACTIONS.build_context.result.timestamp }}
+        username: ${{ ACTIONS.build_context.result.user_name }}
+      priority: medium
+      severity: medium
+      status: in_progress
+      summary: 'CrowdStrike Custom IOA: Claude Code --dangerously-skip-permissions
+        blocked on ${{ ACTIONS.build_context.result.hostname }}'
+      tags:
+      - crowdstrike
+      - custom-ioa
+      - claude-code
+      - endpoint-security
+      - automated-response
+    depends_on:
+    - investigate_and_post
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: create_case
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          emoji: true
+          text: "\U0001F6E1\uFE0F Security Control Notification"
+          type: plain_text
+        type: header
+      - text:
+          text: "Hey <@${{ ACTIONS.lookup_slack_user.result.user.id }}> :wave:\n\n\
+            Our endpoint security system (CrowdStrike) just *blocked an action* on\
+            \ your machine. Don't worry \u2014 this is a protective measure, and your\
+            \ machine is safe. Here's what happened:"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: ':no_entry_sign:  *What was blocked*
+
+            A command was run using Claude Code''s `--dangerously-skip-permissions`
+            flag. This flag turns off Claude''s built-in safety prompts, which means
+            it could run commands, edit files, or access sensitive data *without asking
+            you first*.'
+          type: mrkdwn
+        type: section
+      - fields:
+        - text: ':computer:  *Your Machine*
+
+            `${{ ACTIONS.build_context.result.hostname }}`'
+          type: mrkdwn
+        - text: ':clock1:  *When*
+
+            ${{ ACTIONS.build_context.result.timestamp }}'
+          type: mrkdwn
+        type: section
+      - fields:
+        - text: ':shield:  *Action Taken*
+
+            ${{ ACTIONS.build_context.result.action_taken }}'
+          type: mrkdwn
+        - text: ':warning:  *Severity*
+
+            ${{ ACTIONS.build_context.result.severity }}'
+          type: mrkdwn
+        type: section
+      - text:
+          text: ':page_facing_up:  *Command that was blocked*
+
+            ```${{ ACTIONS.build_context.result.command_line }}```'
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: ":bulb:  *Why does this matter?*\n\nWhen Claude Code runs without\
+            \ permission guardrails, it can execute shell commands, write to any file,\
+            \ and read environment variables (including API keys, tokens, and credentials)\
+            \ \u2014 all without prompting you for approval. This creates a security\
+            \ risk, especially if sensitive credentials are present in your environment."
+          type: mrkdwn
+        type: section
+      - type: divider
+      - text:
+          text: ":white_check_mark:  *What to do instead*\n\n*1.* Use Claude Code\
+            \ normally \u2014 it will ask before taking any risky actions\n*2.* Avoid\
+            \ the `--dangerously-skip-permissions` and `--allow-dangerously-skip-permissions`\
+            \ flags\n*3.* If you have a workflow that genuinely needs broader permissions,\
+            \ reach out to the Security team and we'll help you find a safe approach"
+          type: mrkdwn
+        type: section
+      - type: divider
+      - elements:
+        - text: ':question: Think this was a mistake? Reach out in *#team-security*
+            and we''ll take a look.  |'
+          type: mrkdwn
+        type: context
+      channel: ${{ ACTIONS.lookup_slack_user.result.user.id }}
+      text: CrowdStrike Security Alert - A security control blocked an action on your
+        machine.
+    depends_on:
+    - lookup_slack_user
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: dm_user
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: core.transform.filter
+    args:
+      items: ${{ ACTIONS.search_alert_message.result.messages }}
+      python_lambda: 'lambda msg: str(''${{ ACTIONS.build_context.result.hostname
+        }}'') in str(msg)'
+    depends_on:
+    - search_alert_message
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: find_matching_alert
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: ai.preset_agent
+    args:
+      actions:
+      - tools.crowdstrike.list_detects
+      - tools.crowdstrike.list_alerts
+      - tools.crowdstrike.list_incidents
+      - tools.abuseipdb.lookup_ip_address
+      - tools.falconpy.call_command
+      - tools.slack.post_message
+      instructions: "After completing your investigation, post the report as a thread\
+        \ reply to channel XXXX with thread_ts ${{ ACTIONS.find_matching_alert.result[0].ts\
+        \ }}.\nFormat the Slack message EXACTLY like this structure (use Slack mrkdwn\
+        \ formatting):\nStart with an emoji + italic title line summarizing what happened,\
+        \ the user, and the host. Then \"Verdict: VERDICT_HERE\" with an appropriate\
+        \ emoji.\nUse horizontal rules (\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+        \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500) between sections.\n\
+        Section: *What happened* Write 3-5 sentences. Use inline code backticks for\
+        \ technical values like command lines, paths, hostnames, usernames. Mention\
+        \ the process chain (grandparent -> parent -> process). Note if there were\
+        \ repeated attempts and their timestamps.\nSection: *Why this matters (or\
+        \ doesn't)* Explain what the flag does. Assess whether this looks user-initiated\
+        \ vs automated/malicious based on the process tree. Note the binary path legitimacy\
+        \ and that the event was prevented. Assess immediate impact.\nSection: *What\
+        \ to do* Numbered list of 3-5 specific actions. Reference the actual username,\
+        \ AID, SHA256, timestamps from telemetry. Include: contact user for explanation,\
+        \ pivot on AID in Falcon for all related detections, verify binary legitimacy,\
+        \ escalation criteria.\nSection: *Follow-up investigation steps* For each\
+        \ investigation avenue provide: - Where to look (e.g. \"Falcon Event Search\
+        \ (Process/Runnable events)\") - The actual query to run in inline code -\
+        \ Bullet: \"Look for:\" what to search for - Bullet: \"What it means:\" how\
+        \ to interpret results\nInclude at minimum: process history search, process\
+        \ tree pivot around detection time, file/hash lookup.\nSection: *Key evidence*\
+        \ Bulleted list of factual evidence: blocked cmdline, rule name and instance,\
+        \ disposition, host/user, repeat timestamps, hashes (MD5 and SHA256). Use\
+        \ inline code for all technical values.\nDo NOT return JSON. Do NOT use code\
+        \ blocks for the whole message. Use inline code backticks for technical values\
+        \ only. Write in a professional SOC analyst tone - factual, evidence-based,\
+        \ no speculation."
+      preset: crowdstrike-investigator-agent
+      user_prompt: 'Investigate this CrowdStrike Custom IOA detection:
+
+        Detection ID: ${{ TRIGGER.data["investigatable.investigatable_id"] }} Hostname:
+        ${{ ACTIONS.build_context.result.hostname }} User: ${{ ACTIONS.build_context.result.user_name
+        }} Command Line: ${{ ACTIONS.build_context.result.command_line }} Severity:
+        ${{ ACTIONS.build_context.result.severity }} Action Taken: ${{ ACTIONS.build_context.result.action_taken
+        }} IOA Rule: ${{ ACTIONS.build_context.result.ioa_name }} External IP: ${{
+        ACTIONS.build_context.result.external_ip }} OS Version: ${{ ACTIONS.build_context.result.os_version
+        }} Parent Process: ${{ ACTIONS.build_context.result.parent_cmdline }} Timestamp:
+        ${{ ACTIONS.build_context.result.timestamp }} Falcon URL: ${{ ACTIONS.build_context.result.event_url
+        }}
+
+        Pull host details, check for related detections/incidents on this host, investigate
+        fully, then post your formatted report as a thread reply.'
+    depends_on:
+    - reply_to_alert_thread
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: investigate_and_post
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: tools.slack.lookup_user_by_email
+    args:
+      email: ${{ ACTIONS.build_context.result.email }}
+    depends_on:
+    - build_context
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: lookup_slack_user
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: ":card_index_dividers:  *Case Created*\n\nFull investigation documented\
+            \ in Tracecat case <https://platform.tracecat.com/workspaces/XX-/cases/${{\
+            \ ACTIONS.create_case.result.id }}|${{ ACTIONS.create_case.result.short_id\
+            \ }}>\n\n\u2022 Status: `In Progress`\n\u2022 Priority: Medium | Severity:\
+            \ Medium"
+          type: mrkdwn
+        type: section
+      - elements:
+        - text: ':robot_face: Automated by Tracecat  |  :link: <${{ ACTIONS.build_context.result.event_url
+            }}|View in Falcon>'
+          type: mrkdwn
+        type: context
+      channel: XXXX
+      text: "Case created \u2014 full investigation documented"
+      thread_ts: ${{ ACTIONS.find_matching_alert.result[0].ts }}
+    depends_on:
+    - create_case
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: post_case_link
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: ":white_check_mark:  *Automated Response*\n\n<@${{ ACTIONS.lookup_slack_user.result.user.id\
+            \ }}> (`${{ ACTIONS.build_context.result.email }}`) has been notified\
+            \ via DM with:\n\u2022 Explanation of what was blocked and why\n\u2022\
+            \ Guidance on safe Claude Code usage\n\u2022 Pointer to #team-security\
+            \ for questions"
+          type: mrkdwn
+        type: section
+      - fields:
+        - text: '*Command*
+
+            ```${{ ACTIONS.build_context.result.command_line }}```'
+          type: mrkdwn
+        - text: '*Host*
+
+            `${{ ACTIONS.build_context.result.hostname }}`'
+          type: mrkdwn
+        type: section
+      - elements:
+        - text: ':robot_face: Automated by Tracecat  |  :link: <${{ ACTIONS.build_context.result.event_url
+            }}|View in Falcon>'
+          type: mrkdwn
+        type: context
+      channel: XXXX
+      text: "Automated response \u2014 user notified"
+      thread_ts: ${{ ACTIONS.find_matching_alert.result[0].ts }}
+    depends_on:
+    - find_matching_alert
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: reply_to_alert_thread
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: tools.slack_sdk.call_method
+    args:
+      params:
+        channel: XXXXX
+        limit: 10
+      sdk_method: conversations_history
+    depends_on:
+    - dm_user
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: search_alert_message
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  config:
+    environment: default
+    timeout: 0.0
+  description: 'Receives CrowdStrike Custom IOA detections via Fusion webhook, DMs
+    the offending user, then replies to the alert thread in #crowdstrike-alerts.'
+  entrypoint:
+    expects: {}
+  title: Crowdstrike Custom IOA (Claude Code Detections) - Notify User & Thread Reply
+  triggers: []
+layout:
+  actions:
+  - ref: build_context
+    x: -1.3333333333333428
+    y: 406.66666666666663
+  - ref: create_case
+    x: -1.3366666666666447
+    y: 1576.6666666666667
+  - ref: dm_user
+    x: -1.3333333333333428
+    y: 740.0
+  - ref: find_matching_alert
+    x: -1.3333333333333428
+    y: 1077.3333333333333
+  - ref: investigate_and_post
+    x: -1.3333333333333712
+    y: 1409.3333333333335
+  - ref: lookup_slack_user
+    x: -11.626252716388962
+    y: 574.9065631790972
+  - ref: post_case_link
+    x: -1.3366666666666447
+    y: 1750.6666666666667
+  - ref: reply_to_alert_thread
+    x: -1.3333333333333428
+    y: 1245.3333333333335
+  - ref: search_alert_message
+    x: -1.3333333333333428
+    y: 908.0
+  trigger:
+    x: 0.0
+    y: 0.0
+  viewport:
+    x: 424.3598453050877
+    y: -413.62498922646057
+    zoom: 0.75
+updated_at: '2026-05-15T17:58:46.282246Z'
+version: 49
+workflow_id: b0a9fae2-4a1f-4057-b9ac-d68dd4d56ddf
+workspace_id: 6aa4dda0-e649-47aa-b026-82d418464386
