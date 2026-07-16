@@ -1,0 +1,249 @@
+created_at: '2026-07-16T14:23:05.816660Z'
+definition:
+  actions:
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: ":mag: *Shell history collection started*\n\n\u2022 Host: `${{ TRIGGER.Hostname\
+            \ }}`\n\u2022 Case: `${{ ACTIONS.create_case.result.case_number }}`\n\u2022\
+            \ Requested by: `${{ TRIGGER.Requester }}`"
+          type: mrkdwn
+        type: section
+      channel: ${{ TRIGGER.SlackChannel }}
+      unfurl_links: false
+      unfurl_media: false
+    depends_on:
+    - create_case
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: slack_started
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: core.cases.create_case
+    args:
+      description: 'Agentic RTR collection of macOS shell/script command-history artifacts
+        (zsh/bash/sh/fish history, python REPL history, shell rc files) from ${{ TRIGGER.Hostname
+        }}. Requested by: `${{ TRIGGER.Requester }}`. Reason: ${{ TRIGGER.Reason }}.'
+      priority: high
+      status: in_progress
+      summary: Shell & Script Command History Extraction for ${{ TRIGGER.Hostname
+        }} via CrowdStrike RTR
+    depends_on: []
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: create_case
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: ai.preset_agent
+    args:
+      max_requests: 15
+      max_tool_calls: 8
+      preset: rtr-shell-history-collector
+      user_prompt: Run the VALIDATE phase only for hostname "${{ TRIGGER.Hostname
+        }}" (case ${{ ACTIONS.create_case.result.case_number }}). Resolve the hostname
+        to its AID and check the device is a Mac and online. Do NOT open an RTR session
+        in this phase. Return device_id, platform, eligible, and success.
+    depends_on:
+    - slack_started
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: agent_validate
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: ai.preset_agent
+    args:
+      max_requests: 45
+      max_tool_calls: 40
+      preset: rtr-shell-history-collector
+      user_prompt: "Run the full COLLECT flow in THIS single invocation for device\
+        \ AID \"${{ ACTIONS.agent_validate.result.output.device_id }}\" (host ${{\
+        \ TRIGGER.Hostname }}, case ${{ ACTIONS.create_case.result.case_number }}).\
+        \ In order, all within one RTR session you open here: (1) SESSION: open an\
+        \ RTR batch session against this AID with BatchInitSessions; (2) DISCOVERY:\
+        \ enumerate the single user and find shell/script history artifacts; (3) COLLECTION\
+        \ (chain of custody): hash originals, copy to /tmp with shellhist_ names,\
+        \ read each file's FULL content with cat, zip the copies, hash the zip, and\
+        \ get it to Falcon cloud; (4) ANALYSIS: using the full content you just read,\
+        \ produce the forensic analysis now \u2014 populate analysis_report (structured\
+        \ markdown), secrets_discovered (inventory, values redacted), and history_integrity_note,\
+        \ per the FORENSIC ANALYSIS + REDACTION rules. NEVER print actual secret values;\
+        \ the evidence is in the zip; (5) CLEANUP: remove all /tmp/shellhist_* files\
+        \ and confirm /tmp is clean; (6) close the session with RTR_DeleteSession.\
+        \ Use only discrete commands \u2014 never runscript or any shell script. success/evidence_zip.retrieved\
+        \ reflect the collection outcome (zip created, retrieved, cleanup confirmed),\
+        \ NOT whether content was inlined. Return custody, evidence_zip, analysis_report,\
+        \ secrets_discovered, history_integrity_note, cleanup_confirmed and success."
+    depends_on:
+    - agent_validate
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: agent_collect
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: ${{ ACTIONS.agent_validate.result.output.eligible == True }}
+    start_delay: 0.0
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: ":package: *Collection phase complete*\n\n\u2022 Host: `${{ TRIGGER.Hostname\
+            \ }}`\n\u2022 Case: `${{ ACTIONS.create_case.result.case_number }}`\n\u2022\
+            \ Evidence zip: `${{ ACTIONS.agent_collect.result.output.evidence_zip.filename\
+            \ }}`\n\u2022 ${{ ACTIONS.agent_collect.result.output.summary }}"
+          type: mrkdwn
+        type: section
+      channel: ${{ TRIGGER.SlackChannel }}
+      unfurl_links: false
+      unfurl_media: false
+    depends_on:
+    - agent_collect
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: slack_collected
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  - action: core.cases.update_case
+    args:
+      append: true
+      case_id: ${{ ACTIONS.create_case.result.id }}
+      description: "\n\n---\n\n# RTR Shell History Collection \u2014 Report\n\n##\
+        \ Chain of custody\n- **Evidence zip:** `${{ ACTIONS.agent_collect.result.output.evidence_zip.filename\
+        \ }}`\n- **SHA256:** `${{ ACTIONS.agent_collect.result.output.evidence_zip.sha256\
+        \ }}`\n- **Location:** retrieved to Falcon RTR cloud\n- **Cleanup confirmed:**\
+        \ ${{ ACTIONS.agent_collect.result.output.cleanup_confirmed }}\n\n## Forensic\
+        \ analysis\n\n${{ ACTIONS.agent_collect.result.output.analysis_report }}\n\
+        \n## Credentials & secrets discovered\n\n> Values are redacted here; the full\
+        \ unredacted evidence is in the retrieved zip.\n\n${{ ACTIONS.agent_collect.result.output.secrets_discovered\
+        \ }}\n\n## History integrity\n\n${{ ACTIONS.agent_collect.result.output.history_integrity_note\
+        \ }}\n\n---\n\n**Download evidence:** [RTR audit logs](https://falcon.us-2.crowdstrike.com/real-time-response/sessions/audit-logs)"
+      severity: medium
+      status: in_progress
+    depends_on:
+    - slack_collected
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: update_case_report
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: ${{ ACTIONS.agent_collect.result.output.evidence_zip.retrieved == True
+      }}
+    start_delay: 0.0
+  - action: tools.slack.post_message
+    args:
+      blocks:
+      - text:
+          text: ":white_check_mark: *Shell history collection complete*\n\n\u2022\
+            \ Host: `${{ TRIGGER.Hostname }}`\n\u2022 Case: `${{ ACTIONS.create_case.result.case_number\
+            \ }}`\n\u2022 Evidence zip: `${{ ACTIONS.agent_collect.result.output.evidence_zip.filename\
+            \ }}` (SHA256 `${{ ACTIONS.agent_collect.result.output.evidence_zip.sha256\
+            \ }}`)\n\u2022 Cleanup confirmed: `${{ ACTIONS.agent_collect.result.output.cleanup_confirmed\
+            \ }}`\n\u2022 History integrity: ${{ ACTIONS.agent_collect.result.output.history_integrity_note\
+            \ }}\n\nThe full structured analysis and the redacted list of discovered\
+            \ credentials/secrets are in the Tracecat case."
+          type: mrkdwn
+        type: section
+      - text:
+          text: "<https://platform.tracecat.com/workspaces/e9a7c5ec-b86f-460b-97ef-f93e583863b5/cases/${{\
+            \ ACTIONS.create_case.result.id }}|:file_folder: Open Tracecat case> \
+            \  \u2022   <https://falcon.us-2.crowdstrike.com/real-time-response/sessions/audit-logs|:page_facing_up:\
+            \ RTR audit logs \u2014 download evidence>"
+          type: mrkdwn
+        type: section
+      channel: ${{ TRIGGER.SlackChannel }}
+      unfurl_links: false
+      unfurl_media: false
+    depends_on:
+    - update_case_report
+    description: ''
+    join_strategy: all
+    mask_output: false
+    ref: slack_complete
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    start_delay: 0.0
+  config:
+    environment: default
+    timeout: 900.0
+  description: Fully agentic RTR collection of macOS shell/script command history.
+    The collect agent opens one RTR session, collects with chain of custody, produces
+    a structured forensic analysis in-context (secret values redacted), cleans up,
+    and closes the session. No scripting, no separate analysis node.
+  entrypoint:
+    expects:
+      Hostname:
+        description: Target macOS hostname as seen in CrowdStrike.
+        enum: null
+        optional: null
+        type: str
+      Reason:
+        default: unspecified
+        description: Investigation reason / ticket reference.
+        enum: null
+        optional: null
+        type: str
+      Requester:
+        default: unspecified
+        description: Who requested the collection (email/handle).
+        enum: null
+        optional: null
+        type: str
+      SlackChannel:
+        default: C09UKS397CZ
+        description: Slack channel ID for status updates.
+        enum: null
+        optional: null
+        type: str
+  title: RTR - Extract Shell & Script Command History on macOS (Agentic)
+  triggers: []
+layout:
+  actions:
+  - ref: agent_collect
+    x: 0.0
+    y: 994.56
+  - ref: agent_validate
+    x: 0.0
+    y: 786.7199999999999
+  - ref: create_case
+    x: 0.0
+    y: 413.28000000000003
+  - ref: slack_collected
+    x: 0.0
+    y: 1175.5200000000002
+  - ref: slack_complete
+    x: 0.0
+    y: 1545.12
+  - ref: slack_started
+    x: 0.0
+    y: 600.0
+  - ref: update_case_report
+    x: 0.0
+    y: 1364.16
+  trigger:
+    x: -2.4601600000000587
+    y: 3.071868878580659
+  viewport:
+    x: 38.61097167317695
+    y: 114.22810719529528
+    zoom: 1.0
+updated_at: '2026-07-16T14:23:05.816660Z'
+version: 19
+workflow_id: 70945c90-8c1c-4313-a4c7-cf2f69460a0a
+workspace_id: e9a7c5ec-b86f-460b-97ef-f93e583863b5
