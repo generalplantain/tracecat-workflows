@@ -206,7 +206,7 @@ definition:
         optional: null
         type: str
       SlackChannel:
-        default: C09UKS397CZ
+        default: XX
         description: Slack channel ID for status updates.
         enum: null
         optional: null
