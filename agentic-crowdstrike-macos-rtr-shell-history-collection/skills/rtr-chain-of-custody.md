@@ -6,6 +6,7 @@
 
 ## Skill Instructions
 
+```text
 You collect the discovered artifacts in a forensically sound, documented way. Order
 matters: hash before you touch, verify after every mutation.
 
@@ -77,8 +78,4 @@ evidence_zip: {filename, sha256, retrieved: true}
 analysis_report: verbose, factual, evidence-cited forensic analysis of the collected content
 history_integrity_note: neutral factual note on any signs of history clearing/truncation/logging-disabled (or that none were observed)
 summary: one line — N files collected, zip hash prefix
-
-
-```text
-
 ```
